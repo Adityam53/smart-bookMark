@@ -2,6 +2,8 @@
 
 import { supabase } from "@/app/library/supabase";
 import { useEffect, useState } from "react";
+import toast from "react-hot-toast";
+import { Spinner } from "./Spinner";
 
 type Bookmark = {
   id: string;
@@ -14,6 +16,7 @@ export default function Home() {
   const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
   const [title, setTitle] = useState("");
   const [url, setUrl] = useState("");
+  const [loading, setLoading] = useState(false);
 
   // 🔐 Auth
   useEffect(() => {
@@ -42,9 +45,10 @@ export default function Home() {
       .select("*")
       .order("created_at", { ascending: false });
 
-    if (!error) setBookmarks(data);
+    if (!error && data) setBookmarks(data);
   };
 
+  // ⚡ Realtime + Initial fetch
   useEffect(() => {
     if (!user) return;
 
@@ -59,8 +63,7 @@ export default function Home() {
           schema: "public",
           table: "bookmarks",
         },
-        (payload) => {
-          console.log("REALTIME EVENT:", payload);
+        () => {
           fetchBookmarks();
         },
       )
@@ -71,11 +74,31 @@ export default function Home() {
     };
   }, [user]);
 
+  // 🧠 URL validation
+  const isValidUrl = (url: string) => {
+    try {
+      new URL(url);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
   // ➕ Add bookmark
   const addBookmark = async () => {
-    if (!title || !url) return;
+    if (!title || !url) {
+      toast.error("Please fill all fields");
+      return;
+    }
 
-    await supabase.from("bookmarks").insert([
+    if (!isValidUrl(url)) {
+      toast.error("Invalid URL");
+      return;
+    }
+
+    setLoading(true);
+
+    const { error } = await supabase.from("bookmarks").insert([
       {
         title,
         url,
@@ -83,15 +106,26 @@ export default function Home() {
       },
     ]);
 
-    setTitle("");
-    setUrl("");
-    // fetchBookmarks(); //not needed after applying real-time updates.
+    setLoading(false);
+
+    if (error) {
+      toast.error("Failed to add bookmark");
+    } else {
+      toast.success("Bookmark added 🚀");
+      setTitle("");
+      setUrl("");
+    }
   };
 
   // 🗑 Delete bookmark
   const deleteBookmark = async (id: string) => {
-    await supabase.from("bookmarks").delete().eq("id", id);
-    // fetchBookmarks(); //not needed after applying real-time updates.
+    const { error } = await supabase.from("bookmarks").delete().eq("id", id);
+
+    if (error) {
+      toast.error("Delete failed");
+    } else {
+      toast.success("Deleted");
+    }
   };
 
   // 🔐 Auth actions
@@ -105,10 +139,10 @@ export default function Home() {
 
   if (!user) {
     return (
-      <div className="flex h-screen items-center justify-center">
+      <div className="flex h-screen items-center justify-center bg-black text-white">
         <button
           onClick={loginWithGoogle}
-          className="bg-black text-white px-6 py-3 rounded"
+          className="bg-white text-black px-6 py-3 rounded hover:opacity-80 transition"
         >
           Login with Google
         </button>
@@ -138,19 +172,20 @@ export default function Home() {
             placeholder="Title"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            className="bg-zinc-900 border border-zinc-800 rounded px-3 py-2 w-1/3 focus:outline-none focus:border-zinc-600"
+            className="bg-white/5 backdrop-blur-md border border-white/10 rounded px-3 py-2 w-1/3 focus:outline-none focus:border-white/20"
           />
           <input
             placeholder="URL"
             value={url}
             onChange={(e) => setUrl(e.target.value)}
-            className="bg-zinc-900 border border-zinc-800 rounded px-3 py-2 w-2/3 focus:outline-none focus:border-zinc-600"
+            className="bg-white/5 backdrop-blur-md border border-white/10 rounded px-3 py-2 w-2/3 focus:outline-none focus:border-white/20"
           />
           <button
             onClick={addBookmark}
-            className="bg-white text-black px-4 rounded hover:opacity-80 transition"
+            disabled={loading}
+            className="bg-white text-black px-4 rounded hover:opacity-80 transition disabled:opacity-50"
           >
-            Add
+            {loading ? <Spinner /> : "Add"}
           </button>
         </div>
 
@@ -165,22 +200,35 @@ export default function Home() {
           {bookmarks.map((b) => (
             <div
               key={b.id}
-              className="bg-zinc-900 border border-zinc-800 rounded px-4 py-3 flex justify-between items-center hover:border-zinc-600 transition"
+              className="bg-white/5 backdrop-blur-md border border-white/10 rounded px-4 py-3 flex justify-between items-center hover:border-white/20 transition"
             >
               <a
                 href={b.url}
                 target="_blank"
+                rel="noopener noreferrer"
                 className="text-sm hover:underline break-all"
               >
                 {b.title}
               </a>
 
-              <button
-                onClick={() => deleteBookmark(b.id)}
-                className="text-xs text-gray-500 hover:text-red-400 transition"
-              >
-                Delete
-              </button>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(b.url);
+                    toast.success("Link copied!");
+                  }}
+                  className="text-xs text-gray-400 hover:text-white transition"
+                >
+                  Copy
+                </button>
+
+                <button
+                  onClick={() => deleteBookmark(b.id)}
+                  className="text-xs text-gray-400 hover:text-red-400 transition"
+                >
+                  Delete
+                </button>
+              </div>
             </div>
           ))}
         </div>
